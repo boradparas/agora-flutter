@@ -1,124 +1,135 @@
+import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_mobx/flutter_mobx.dart';
-import 'package:provider/provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 
-import 'common/stores/hello/hello_store.dart';
+const appId = "630d162e9715481da4c6f9f479b8ecb1";
 
-void main() {
-  runApp(const MyApp());
+const token =
+    "006630d162e9715481da4c6f9f479b8ecb1IAAgGX38MX2Xsd1ZbTymkbjhLQPGzaCXQxwA0vmebhptZWBYxpjqQfVeIgC0l0wCBRt3ZAQAAQAFG3dkAgAFG3dkAwAFG3dkBAAFG3dk";
+
+const channel = "wad";
+
+
+void main() => runApp(const MaterialApp(home: MyApp()));
+
+class MyApp extends StatefulWidget {
+  const MyApp({Key? key}) : super(key: key);
+
+  @override
+  State<MyApp> createState() => _MyAppState();
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class _MyAppState extends State<MyApp> {
+  List<int> remoteUsers = [];
+  bool _localUserJoined = false;
+  late RtcEngine _engine;
 
-  // This widget is the root of your application.
   @override
-  Widget build(BuildContext context) {
-    return MultiProvider(
-      providers: [
-        Provider(create: (_) => HelloStore()),
-      ],
-      child: MaterialApp(
-        title: 'Flutter Demo',
-        theme: ThemeData(
-          // This is the theme of your application.
-          //
-          // TRY THIS: Try running your application with "flutter run". You'll see
-          // the application has a blue toolbar. Then, without quitting the app,
-          // try changing the seedColor in the colorScheme below to Colors.green
-          // and then invoke "hot reload" (save your changes or press the "hot
-          // reload" button in a Flutter-supported IDE, or press "r" if you used
-          // the command line to start the app).
-          //
-          // Notice that the counter didn't reset back to zero; the application
-          // state is not lost during the reload. To reset the state, use hot
-          // restart instead.
-          //
-          // This works for code too, not just values: Most code changes can be
-          // tested with just a hot reload.
-          colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-          useMaterial3: true,
-        ),
-        home: const MyHomePage(title: 'Flutter Demo Home Page'),
+  void initState() {
+    super.initState();
+    initAgora();
+  }
+
+  Future<void> initAgora() async {
+    // retrieve permissions
+    await [Permission.microphone, Permission.camera].request();
+
+    //create the engine
+    _engine = createAgoraRtcEngine();
+    await _engine.initialize(const RtcEngineContext(
+      appId: appId,
+      channelProfile: ChannelProfileType.channelProfileLiveBroadcasting,
+    ));
+
+    _engine.registerEventHandler(
+      RtcEngineEventHandler(
+        onJoinChannelSuccess: (RtcConnection connection, int elapsed) {
+          print('Joined channel: $channel');
+          _localUserJoined = true;
+        },
+        onUserJoined: (RtcConnection connection, int remoteUid, int elapsed) {
+          setState(() {
+            remoteUsers.add(remoteUid);
+          });
+        },
+        onUserOffline: (RtcConnection connection, int remoteUid,
+            UserOfflineReasonType reason) {
+          setState(() {
+            remoteUsers.remove(remoteUid);
+          });
+        },
+        onTokenPrivilegeWillExpire: (RtcConnection connection, String token) {
+          debugPrint(
+              '[onTokenPrivilegeWillExpire] connection: ${connection.toJson()}, token: $token');
+        },
       ),
     );
-  }
-}
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
+    await _engine.setClientRole(role: ClientRoleType.clientRoleBroadcaster);
+    await _engine.enableVideo();
+    await _engine.startPreview();
 
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
-
-  @override
-  State<MyHomePage> createState() => _MyHomePageState();
-}
-
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
-
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
+    await _engine.joinChannelWithUserAccount(
+      token: token,
+      channelId: channel,
+      userAccount: "paras",
+      options: const ChannelMediaOptions(),
+    );
   }
 
+  // Create UI with local view and remote view
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
     return Scaffold(
       appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
+        title: const Text('Agora Video Call'),
       ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text(
-              'You have pushed the button this many times:',
+      body: Stack(
+        children: [
+          GridView.builder(
+            itemCount: _localUserJoined ? remoteUsers.length + 1 : 0,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
             ),
-            Observer(builder: (context) {
-              final store = context.read<HelloStore>();
-              return Text(
-                '${store.names.length}',
-                style: Theme.of(context).textTheme.headlineMedium,
-              );
-            }),
-          ],
-        ),
+            itemBuilder: (BuildContext context, int index) {
+              if (index == 0 && _localUserJoined) {
+                return Container(
+                  decoration: BoxDecoration(                    
+                    border: Border.all(
+                      color: Colors.green,
+                      width: 1,
+                    ),
+                  ),
+                  child: AgoraVideoView(
+                    controller: VideoViewController(
+                      rtcEngine: _engine,
+                      canvas: const VideoCanvas(uid: 0),
+                    ),
+                  ),
+                );
+              } else {
+                return Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: Colors.red,
+                      width: 1,
+                    ),
+                  ),
+                  child: AgoraVideoView(
+                    controller: VideoViewController.remote(
+                      rtcEngine: _engine,
+                      canvas: VideoCanvas(
+                        uid: remoteUsers[index - 1],
+                      ),
+                      connection: const RtcConnection(channelId: channel),
+                    ),
+                  ),
+                );
+              }
+            },
+          ),
+        ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
     );
   }
 }
